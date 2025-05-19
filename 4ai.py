@@ -3,7 +3,6 @@ import asyncio
 from crawl4ai import AsyncWebCrawler
 from tenacity import retry, stop_after_attempt, wait_fixed
 import re
-from threading import Thread
 import traceback
 
 app = Flask(__name__)
@@ -41,37 +40,24 @@ async def crawl4ai_with_retry(url: str) -> str:
         print(f"[ERROR] 爬蟲內部例外：{type(e).__name__} - {e}")
         raise
 
-# 📬 API 端點
+# 📬 API 端點（無 Thread）
 @app.route('/crawl4ai_once', methods=['POST'])
 def crawl4ai_once():
-    data = request.get_json(force=True)
-    url = data.get("url")
+    try:
+        data = request.get_json(force=True)
+        url = data.get("url")
 
-    if not url:
-        return jsonify({"error": "Missing 'url'"}), 400
+        if not url:
+            return jsonify({"error": "Missing 'url'"}), 400
 
-    result_container = {}
+        print(f"[DEBUG] 執行 asyncio.run 爬蟲：{url}")
+        cleaned = asyncio.run(crawl4ai_with_retry(url))
+        return jsonify({"markdown": cleaned})
 
-    # 🧵 使用 Thread 包 asyncio.run
-    def do_crawl():
-        try:
-            print(f"[DEBUG] Thread 開始執行爬蟲")
-            result = asyncio.run(crawl4ai_with_retry(url))
-            result_container["cleaned"] = result
-            print(f"[DEBUG] 爬蟲成功，資料已儲存")
-        except Exception as e:
-            traceback.print_exc()
-            print(f"[ERROR] Thread 發生錯誤：{type(e).__name__} - {e}")
-            result_container["error"] = f"Crawl failed: {type(e).__name__} - {e}"
-
-    thread = Thread(target=do_crawl)
-    thread.start()
-    thread.join(timeout=30)  # ⏳ 延長等待時間
-
-    if "error" in result_container:
-        return jsonify({"error": result_container["error"]}), 500
-
-    return jsonify({"markdown": result_container["cleaned"]})
+    except Exception as e:
+        print(f"[ERROR] 發生錯誤：{e}")
+        traceback.print_exc()
+        return jsonify({"error": f"Crawl failed: {type(e).__name__} - {e}"}), 500
 
 # 🚀 本地端啟動用
 if __name__ == '__main__':
