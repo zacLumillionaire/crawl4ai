@@ -38,15 +38,15 @@ async def crawl4ai_with_retry(url: str) -> str:
             result = await crawler.arun(url=url)
             print(f"[DEBUG] 抓取成功，開始清洗")
 
-            if not result.markdown:
-                raise ValueError("result.markdown 為空")
+            if not result.markdown or result.markdown.strip() == "":
+                raise ValueError("抓不到內容")
 
             return clean_markdown(result.markdown)
     except Exception as e:
         print(f"[ERROR] 爬蟲內部例外：{type(e).__name__} - {e}")
         raise
 
-# 📬 API 端點（加入鎖控）
+# 📬 API 端點
 @app.route('/crawl4ai_once', methods=['POST'])
 def crawl4ai_once():
     data = request.get_json(force=True)
@@ -55,16 +55,22 @@ def crawl4ai_once():
     if not url:
         return jsonify({"error": "Missing 'url'"}), 400
 
-    with crawl_lock:  # 🔒 確保同時間只跑一個 request
+    with crawl_lock:  # 🔒 保護區塊
         try:
             print(f"[DEBUG] 執行 asyncio.run 爬蟲：{url}")
             cleaned = asyncio.run(crawl4ai_with_retry(url))
             return jsonify({"markdown": cleaned})
+
+        except ValueError as ve:
+            if "抓不到內容" in str(ve):
+                print(f"[INFO] 網頁無內容：{url}")
+                return jsonify({"error": "抓不到內容，請確認該網頁是否存在或可被存取"}), 204
+
         except Exception as e:
             print(f"[ERROR] 發生錯誤：{e}")
             traceback.print_exc()
             return jsonify({"error": f"Crawl failed: {type(e).__name__} - {e}"}), 500
 
-# 🚀 本地端啟動用
+# 🚀 本地啟動用
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
