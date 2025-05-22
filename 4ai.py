@@ -37,6 +37,10 @@ async def crawl4ai_with_retry(url: str) -> str:
         async with AsyncWebCrawler(strategy="httpx", verbose=True) as crawler:
             result = await crawler.arun(url=url)
             print(f"[DEBUG] 抓取成功，開始清洗")
+
+            if not result.markdown:
+                raise ValueError("result.markdown 為空")
+
             return clean_markdown(result.markdown)
     except Exception as e:
         print(f"[ERROR] 爬蟲內部例外：{type(e).__name__} - {e}")
