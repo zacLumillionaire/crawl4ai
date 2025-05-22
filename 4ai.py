@@ -5,6 +5,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 import re
 import traceback
 import threading
+from tenacity import RetryError
 
 app = Flask(__name__)
 crawl_lock = threading.Lock()  # 🔒 全域鎖
@@ -55,19 +56,23 @@ def crawl4ai_once():
     if not url:
         return jsonify({"error": "Missing 'url'"}), 400
 
-    with crawl_lock:  # 🔒 保護區塊
+    with crawl_lock:
         try:
             print(f"[DEBUG] 執行 asyncio.run 爬蟲：{url}")
             cleaned = asyncio.run(crawl4ai_with_retry(url))
             return jsonify({"markdown": cleaned})
 
-        except ValueError as ve:
-            if "抓不到內容" in str(ve):
-                print(f"[INFO] 網頁無內容：{url}")
-                return jsonify({"error": "抓不到內容，請確認該網頁是否存在或可被存取"}), 204
+        except RetryError as re:
+            last_exc = re.last_attempt.exception()
+            if isinstance(last_exc, ValueError) and "抓不到內容" in str(last_exc):
+                print(f"[INFO] 網頁無內容（已重試）: {url}")
+                return '', 204  # 204 No Content
+
+            print(f"[ERROR] 最後一次重試仍失敗：{type(last_exc).__name__} - {last_exc}")
+            return jsonify({"error": f"Retry failed: {type(last_exc).__name__} - {last_exc}"}), 500
 
         except Exception as e:
-            print(f"[ERROR] 發生錯誤：{e}")
+            print(f"[ERROR] 發生未知錯誤：{e}")
             traceback.print_exc()
             return jsonify({"error": f"Crawl failed: {type(e).__name__} - {e}"}), 500
 
